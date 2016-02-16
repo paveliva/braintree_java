@@ -1,7 +1,6 @@
 package com.braintreegateway;
 
 import com.braintreegateway.util.Http;
-import com.braintreegateway.util.Logger;
 import com.braintreegateway.util.TrUtil;
 
 /**
@@ -53,16 +52,11 @@ public class BraintreeGateway {
      * @param privateKey
      *            the private key provided by Braintree.
      */
-    public BraintreeGateway(Environment environment, String merchantId, String publicKey, String privateKey, Logger logger) {
-        this.configuration = new Configuration(environment, merchantId, publicKey, privateKey);
-        this.http = new Http(configuration, logger);
-    }
-
     public BraintreeGateway(Environment environment, String merchantId, String publicKey, String privateKey) {
         this.configuration = new Configuration(environment, merchantId, publicKey, privateKey);
         this.http = new Http(configuration);
     }
-    
+
     public BraintreeGateway(String environment, String merchantId, String publicKey, String privateKey) {
         this.configuration = new Configuration(environment, merchantId, publicKey, privateKey);
         this.http = new Http(configuration);
@@ -249,10 +243,6 @@ public class BraintreeGateway {
 
     public OAuthGateway oauth() {
         return new OAuthGateway(http, configuration);
-    }
-    
-    public void enableLogging(boolean enable) {
-    	http.getLogger().setEnabled(enable);
     }
 
     public TestingGateway testing() {

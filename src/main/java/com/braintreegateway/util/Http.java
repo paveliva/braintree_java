@@ -20,7 +20,13 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.text.SimpleDateFormat;
 import java.util.Collection;
+import java.util.Date;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 public class Http {
@@ -30,13 +36,7 @@ public class Http {
     }
 
     private Configuration configuration;
-    private Logger logger = Logger.DUMMY_LOGGER;
 
-    public Http(Configuration configuration, Logger logger) {
-        this.configuration = configuration;
-        this.logger = logger;
-    }
-    
     public Http(Configuration configuration) {
         this.configuration = configuration;
     }
@@ -72,18 +72,19 @@ public class Http {
     private NodeWrapper httpRequest(RequestMethod requestMethod, String url, String postBody) {
         HttpURLConnection connection = null;
         NodeWrapper nodeWrapper = null;
-        String xml = null;
-        String connectionInfo = null;
+        Logger logger = configuration.getLogger();
+
         try {
             connection = buildConnection(requestMethod, url);
-            if (getLogger().isEnabled()) {
-            	connectionInfo = connection.getURL().toString() + "," + connection.getRequestProperties().toString();            	
+
+            if (logger.getLevel().intValue() <= Level.FINE.intValue() && postBody != null) {
+                logger.log(Level.FINE, formatSanitizeBodyForLog(postBody));
             }
-            
+
             if (connection instanceof HttpsURLConnection) {
                 ((HttpsURLConnection) connection).setSSLSocketFactory(getSSLSocketFactory());
             }
-            
+
             if (postBody != null) {
                 OutputStream outputStream = null;
                 try {
@@ -109,7 +110,14 @@ public class Http {
                     responseStream = new GZIPInputStream(responseStream);
                 }
 
-                xml = StringUtils.inputStreamToString(responseStream);
+                String xml = StringUtils.inputStreamToString(responseStream);
+
+                logger.log(Level.INFO, "[Braintree] [{0}]] {1} {2}", new Object[] { getCurrentTime(), requestMethod.toString(), url });
+                logger.log(Level.FINE, "[Braintree] [{0}] {1} {2} {3}", new Object[] { getCurrentTime(), requestMethod.toString(), url, connection.getResponseCode() });
+                
+                if (logger.getLevel().intValue() <= Level.FINE.intValue() && xml != null) {
+                    logger.log(Level.FINE, formatSanitizeBodyForLog(xml));
+                }
                 nodeWrapper = NodeWrapperFactory.instance.create(xml);
             } finally {
                 if (responseStream != null) {
@@ -122,12 +130,35 @@ public class Http {
             if (connection != null) {
                 connection.disconnect();
             }
-            
-            getLogger().httpLogging(connectionInfo,requestMethod.name(), url, postBody, xml);
-            
         }
 
         return nodeWrapper;
+    }
+    
+    private String formatSanitizeBodyForLog(String body) {
+        if(body == null) {
+            return body;
+        }
+        
+        Pattern regex = Pattern.compile("(^)", Pattern.MULTILINE);
+        Matcher regexMatcher = regex.matcher(body);
+        if(regexMatcher.find()) {
+            body = regexMatcher.replaceAll("[Braintree] $1");
+        }
+        
+        regex = Pattern.compile("<number>(.{6}).+?(.{4})</number>");
+        regexMatcher = regex.matcher(body);
+        if(regexMatcher.find()) {
+            body = regexMatcher.replaceAll("<number>$1******$2</number>");
+        }
+        
+        body = body.replaceAll("<cvv>.+?</cvv>", "<cvv>***</cvv>");
+        
+        return body;
+    }
+
+    private String getCurrentTime() {
+        return new SimpleDateFormat("d/MMM/yyyy HH:mm:ss Z").format(new Date());
     }
 
     private SSLSocketFactory getSSLSocketFactory() {
@@ -144,10 +175,10 @@ public class Http {
                     Collection<? extends Certificate> coll = cf.generateCertificates(certStream);
                     for (Certificate cert : coll) {
                         if (cert instanceof X509Certificate) {
-                          X509Certificate x509cert = (X509Certificate) cert;
-                          Principal principal = x509cert.getSubjectDN();
-                          String subject = principal.getName();
-                          keyStore.setCertificateEntry(subject, cert);
+                            X509Certificate x509cert = (X509Certificate) cert;
+                            Principal principal = x509cert.getSubjectDN();
+                            String subject = principal.getName();
+                            keyStore.setCertificateEntry(subject, cert);
                         }
                     }
                 } finally {
@@ -167,6 +198,8 @@ public class Http {
 
             return sslContext.getSocketFactory();
         } catch (Exception e) {
+            Logger logger = configuration.getLogger();
+            logger.log(Level.SEVERE, "SSL Verification failed. Error message: {0}", new Object[] { e.getMessage() });
             throw new UnexpectedException(e.getMessage(), e);
         }
     }
@@ -190,7 +223,7 @@ public class Http {
         connection.setReadTimeout(60000);
         return connection;
     }
-    
+
     public static void throwExceptionIfErrorStatusCode(int statusCode, String message) {
         String decodedMessage = null;
         if (message != null) {
@@ -223,7 +256,8 @@ public class Http {
     }
 
     private static boolean isErrorCode(int responseCode) {
-        return responseCode != 200 && responseCode != 201 && responseCode != 422;
+        return responseCode != 200 && responseCode != 201
+                && responseCode != 422;
     }
 
     public String authorizationHeader() {
@@ -232,14 +266,13 @@ public class Http {
         }
         String credentials;
         if (configuration.isClientCredentials()) {
-            credentials = configuration.getClientId() + ":" + configuration.getClientSecret();
+            credentials = configuration.getClientId() + ":"
+                    + configuration.getClientSecret();
         } else {
-            credentials = configuration.getPublicKey() + ":" + configuration.getPrivateKey();
+            credentials = configuration.getPublicKey() + ":"
+                    + configuration.getPrivateKey();
         }
-        return "Basic " + Base64.encodeBase64String(credentials.getBytes()).trim();
-    }
-    
-    public Logger getLogger() {
-    	return logger;
+        return "Basic "
+                + Base64.encodeBase64String(credentials.getBytes()).trim();
     }
 }

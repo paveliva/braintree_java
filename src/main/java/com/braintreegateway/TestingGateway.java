@@ -1,5 +1,7 @@
 package com.braintreegateway;
 
+import java.util.logging.Level;
+
 import com.braintreegateway.exceptions.NotFoundException;
 import com.braintreegateway.exceptions.TestOperationPerformedInProductionException;
 import com.braintreegateway.util.Http;
